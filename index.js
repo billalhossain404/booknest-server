@@ -213,3 +213,5 @@ app.get("/", (req, res) => {
 
 // Start Server
 connectToMongoDB();
+
+export default app;
