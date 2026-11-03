@@ -3,6 +3,7 @@ import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
 import cors from "cors";
 import { ObjectId } from "mongodb";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 dotenv.config();
 const app = express();
@@ -15,6 +16,33 @@ app.use(express.json());
 const client = new MongoClient(process.env.MONGO_DB_URI);
 let booksCollection;
 let BookingsCollection;
+
+const verifyToken = async(req, res, next) => {
+      const authHeader = req.headers.authorization;
+    if (!authHeader) {
+    return res.status(401).json({
+      success: false,
+      message: "Authorization header missing",
+    });
+  }
+  const token = authHeader.split(" ")[1];
+  console.log("Token:", token);
+
+  const JWKS = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
+  
+  try {
+    const payload = await jwtVerify(token, JWKS)
+    next();
+  }
+  catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid token",
+    });
+  }
+}
+
+
 
 // Connect MongoDB
 async function connectToMongoDB() {
@@ -36,7 +64,7 @@ async function connectToMongoDB() {
 }
 
 // Add Book API
-app.post("/add-books", async (req, res) => {
+app.post("/add-books", verifyToken, async (req, res) => {
   try {
     const bookData = req.body;
     console.log("Request body:", bookData);
@@ -147,7 +175,10 @@ app.get("/all-books", async (req, res) => {
 });
 
 // Get Single Book API
-app.get("/all-books/:id", async (req, res) => {
+app.get("/all-books/:id",
+  verifyToken,
+  async (req, res) => { 
+  
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
