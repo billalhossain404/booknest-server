@@ -16,10 +16,11 @@ app.use(express.json());
 const client = new MongoClient(process.env.MONGO_DB_URI);
 let booksCollection;
 let BookingsCollection;
+let databaseConnection;
 
-const verifyToken = async(req, res, next) => {
-      const authHeader = req.headers.authorization;
-    if (!authHeader) {
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
     return res.status(401).json({
       success: false,
       message: "Authorization header missing",
@@ -28,41 +29,43 @@ const verifyToken = async(req, res, next) => {
   const token = authHeader.split(" ")[1];
   console.log("Token:", token);
 
-  const JWKS = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
-  
+  const JWKS = createRemoteJWKSet(
+    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+  );
+
   try {
-    const payload = await jwtVerify(token, JWKS)
+    const payload = await jwtVerify(token, JWKS);
     next();
-  }
-  catch (error) {
+  } catch (error) {
     return res.status(401).json({
       success: false,
       message: "Invalid token",
     });
   }
+};
+
+async function connectToMongoDB() {
+  if (!databaseConnection) {
+    databaseConnection = client.connect().then(() => {
+      console.log("Successfully connected to MongoDB!");
+    });
+  }
+
+  return databaseConnection;
 }
 
-
-
-// Connect MongoDB
-async function connectToMongoDB() {
+app.use(async (_req, _res, next) => {
   try {
-    await client.connect();
-
-    console.log("Successfully connected to MongoDB!");
-    const db = client.db("booknookDB");
-    booksCollection = db.collection("books");
-    BookingsCollection = db.collection("bookings");
-
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-    });
+    await connectToMongoDB();
+    next();
   } catch (error) {
     console.error("MongoDB Connection Error:", error);
-    process.exit(1);
+    next(error);
   }
-}
-
+});
+const db = client.db("booknookDB");
+booksCollection = db.collection("books");
+BookingsCollection = db.collection("bookings");
 // Add Book API
 app.post("/add-books", verifyToken, async (req, res) => {
   try {
@@ -175,10 +178,7 @@ app.get("/all-books", async (req, res) => {
 });
 
 // Get Single Book API
-app.get("/all-books/:id",
-  verifyToken,
-  async (req, res) => { 
-  
+app.get("/all-books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
@@ -211,7 +211,17 @@ app.get("/", (req, res) => {
   });
 });
 
-// Start Server
-connectToMongoDB();
+if (process.env.NODE_ENV !== "production") {
+  connectToMongoDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+      });
+    })
+    .catch((error) => {
+      console.error("MongoDB Connection Error:", error);
+      process.exit(1);
+    });
+}
 
 export default app;
